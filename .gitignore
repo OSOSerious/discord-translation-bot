@@ -1,12 +1,41 @@
-# Runtime data — never commit.
-data/
-.goldsmith/
-.trash/
-space_recovery.txt
+# The directory Mix will write compiled artifacts to.
+/_build/
 
-# Secrets & logs.
+# If you run "mix test --cover", coverage assets end up here.
+/cover/
+
+# The directory Mix downloads your dependencies sources to.
+/deps/
+
+# Where third-party dependencies like ExDoc output generated docs.
+/doc/
+
+# Temporary files, for example, from tests.
+/tmp/
+
+# If the VM crashes, it generates a dump, let's ignore it too.
+erl_crash.dump
+
+# Also ignore archive artifacts (built via "mix archive.build").
+*.ez
+
+# Ignore package tarball (built via "mix hex.build").
+translate_bot-*.tar
+
+# Secrets — never commit.
 .env
-*.log
+.env.*
+!.env.example
 
-# OS / editor.
+# Runtime logs.
+*.log
+bot.log
+
+# Editor / OS noise.
 .DS_Store
+*.swp
+.idea/
+.vscode/
+.elixir_ls/
+data
+.goldsmith
