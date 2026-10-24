@@ -1,0 +1,12 @@
+# Runtime data — never commit.
+data/
+.goldsmith/
+.trash/
+space_recovery.txt
+
+# Secrets & logs.
+.env
+*.log
+
+# OS / editor.
+.DS_Store
