@@ -17,18 +17,20 @@ defmodule TranslateBot.FileTranslator do
   @chunk_chars 2_000
 
   @doc """
-  Translate a Discord attachment struct to English (or Spanish when the
-  source is already English).
+  Translate a Discord attachment struct into `to` (or English/Spanish by
+  auto-detection when `to` is `nil`).
 
   Returns `{:ok, %{filename: String.t(), content: String.t(), from: String.t(), to: String.t()}}`.
   """
   @spec run(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(attachment, opts \\ []) do
+    target = Keyword.get(opts, :to)
+
     with {:ok, raw} <- download(attachment),
          {:ok, text} <- decode_utf8(raw),
          :ok <- check_size(text),
          {:ok, from} <- detect_language(text),
-         to when is_binary(to) <- target_for(from, opts),
+         to when is_binary(to) <- target_for(from, target),
          {:ok, translated} <- translate_chunks(text, from, to) do
       {:ok,
        %{
@@ -84,10 +86,11 @@ defmodule TranslateBot.FileTranslator do
     end
   end
 
-  # English input gets translated to Spanish (keeps the bot useful for both
-  # audiences); everything else goes to English.
-  defp target_for("en", _opts), do: "es"
-  defp target_for(_other, _opts), do: "en"
+  # Explicit target wins; otherwise English input gets translated to Spanish
+  # (keeps the bot useful for both audiences) and everything else → English.
+  defp target_for(_from, to) when is_binary(to) and to != "", do: to
+  defp target_for("en", _nil), do: "es"
+  defp target_for(_other, _nil), do: "en"
 
   defp translate_chunks(text, from, to) do
     chunks = chunk_lines(text)
@@ -164,7 +167,18 @@ defmodule TranslateBot.FileTranslator do
 
   defp translated_filename(%{filename: filename}, to) do
     base = filename |> String.split(".") |> Enum.drop(-1) |> Enum.join(".")
-
     (if base == "", do: "translation", else: base) <> "." <> to <> ".txt"
+  end
+
+  # Plain-text-ish formats we accept for translation.
+  @text_extensions [".txt", ".md", ".csv", ".srt", ".html", ".htm", ".json", ".log"]
+
+  @doc "Does this attachment look like a translatable text file?"
+  @spec text_file?(map()) :: boolean()
+  def text_file?(%{filename: filename, size: size}) do
+    name = String.downcase(filename || "")
+
+    name in ["", ".txt"] or String.ends_with?(name, @text_extensions) or
+      (is_integer(size) and size > 0 and String.contains?(name, ".") == false)
   end
 end

@@ -98,6 +98,42 @@ defmodule TranslateBot.Consumer do
     end
   end
 
+  defp handle_interaction(%Interaction{data: %{name: "translate-file"}} = interaction) do
+    # Ack immediately (translation takes a while), then edit in the result.
+    InteractionApi.create_response(interaction, %{type: 5, data: %{content: "Translating… 🌐"}})
+
+    attachment =
+      interaction.data.resolved
+      |> Map.get(:attachments, %{})
+      |> Map.values()
+      |> List.first()
+
+    to = option(interaction, "lang")
+
+    if attachment do
+      Task.start(fn ->
+        case TranslateBot.FileTranslator.run(attachment, to: to) do
+          {:ok, %{filename: filename, content: content, from: from, to: to_lang}} ->
+            upload_file_followup(interaction, filename, content, from, to_lang)
+
+          {:error, :file_too_large} ->
+            followup(interaction, "That file is too big to translate (1 MB max).")
+
+          {:error, :invalid_utf8} ->
+            followup(interaction, "That doesn't look like a UTF-8 text file — save it as UTF-8 and retry.")
+
+          {:error, reason} ->
+            Logger.warning("translate-file failed: #{inspect(reason)}")
+            followup(interaction, "Couldn't translate that file — try again in a moment.")
+        end
+      end)
+    else
+      followup(interaction, "Upload a text file with the command.")
+    end
+
+    :ok
+  end
+
   defp handle_interaction(%Interaction{data: %{name: "auto"}} = interaction) do
     channel_id = interaction.channel_id
     enabled = TranslateBot.Channels.toggle(channel_id)
@@ -173,8 +209,9 @@ defmodule TranslateBot.Consumer do
   defp handle_message(%Message{author: %{bot: true}}), do: :ignore
 
   defp handle_message(%Message{attachments: [attachment | _]} = msg) do
-    # .txt attachments in an /auto channel get translated and posted back.
-    if TranslateBot.Channels.enabled?(msg.channel_id) and text_attachment?(attachment) do
+    # Text attachments in an /auto channel get translated and posted back.
+    if TranslateBot.Channels.enabled?(msg.channel_id) and
+         TranslateBot.FileTranslator.text_file?(attachment) do
       Task.start(fn ->
         case TranslateBot.FileTranslator.run(attachment) do
           {:ok, %{filename: filename, content: content, from: from, to: to}} ->
@@ -207,11 +244,6 @@ defmodule TranslateBot.Consumer do
     end
 
     :ignore
-  end
-
-  defp text_attachment?(%{filename: filename, size: size}) do
-    String.ends_with?(String.downcase(filename || ""), ".txt") and
-      is_integer(size) and size <= Application.get_env(:translate_bot, :max_translation_file_bytes, 1_000_000) + 100
   end
 
   defp upload(%Message{} = msg, filename, content, from, to) do
@@ -268,6 +300,24 @@ defmodule TranslateBot.Consumer do
       error ->
         Logger.warning("interaction response failed: #{inspect(error)}")
         :error
+    end
+  end
+
+  # Edit the deferred (type 5) response into the real answer.
+  defp followup(interaction, content) do
+    case InteractionApi.edit_response(interaction, %{content: content}) do
+      {:ok, _} -> :ok
+      error -> Logger.warning("followup failed: #{inspect(error)}")
+    end
+  end
+
+  defp upload_file_followup(interaction, filename, content, from, to) do
+    case InteractionApi.edit_response(interaction, %{
+           content: "📄 Translated #{flag(from)} → #{flag(to)} — here's your file:",
+           files: [%{name: filename, body: content}]
+         }) do
+      {:ok, _} -> :ok
+      error -> Logger.warning("file followup failed: #{inspect(error)}")
     end
   end
 

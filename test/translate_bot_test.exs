@@ -115,16 +115,27 @@ defmodule TranslateBotTest do
   # -- Commands ------------------------------------------------------------
 
   describe "TranslateBot.Commands" do
-    test "defines translate, translate-to, detect and auto" do
+    test "defines translate, translate-to, translate-file, detect and auto" do
       names = TranslateBot.Commands.all() |> Enum.map(& &1.name)
-      assert names == ["translate", "translate-to", "detect", "auto"]
+      assert names == ["translate", "translate-to", "translate-file", "detect", "auto"]
     end
 
-    test "translate-to offers es/en choices" do
+    test "language choices stay within Discord's 25-option cap" do
       cmd = Enum.find(TranslateBot.Commands.all(), &(&1.name == "translate-to"))
       lang_opt = Enum.find(cmd.options, &(&1.name == "lang"))
-      choices = lang_opt.choices |> Enum.map(& &1.value)
-      assert choices == ["es", "en"]
+      assert length(lang_opt.choices) <= 25
+
+      fc = Enum.find(TranslateBot.Commands.all(), &(&1.name == "translate-file"))
+      fc_lang = Enum.find(fc.options, &(&1.name == "lang"))
+      assert length(fc_lang.choices) <= 25
+    end
+
+    test "translate-file takes an attachment" do
+      cmd = Enum.find(TranslateBot.Commands.all(), &(&1.name == "translate-file"))
+      file_opt = Enum.find(cmd.options, &(&1.name == "file"))
+      # Discord type 11 = attachment
+      assert file_opt.type == 11
+      assert file_opt.required == true
     end
   end
 end

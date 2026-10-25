@@ -3,14 +3,54 @@ defmodule TranslateBot.Commands do
   Slash-command definitions and (idempotent) registration.
 
   Commands:
-    * `/translate text:<msg>`   — auto-detect ES↔EN and translate
-    * `/detect text:<msg>`      — report the detected language
-    * `/auto`                   — toggle auto-translate in this channel
+    * `/translate text:<msg>`            — auto-detect ES↔EN and translate
+    * `/translate-to lang: text:`        — translate into a specific language
+    * `/translate-file file: lang:`      — translate a text file attachment
+    * `/detect text:<msg>`               — report the detected language
+    * `/auto`                            — toggle auto-translate in this channel
   """
 
   alias Nostrum.Api.ApplicationCommand
 
   require Logger
+
+  # The languages offered in dropdowns. LibreTranslate supports 50; these
+  # are the most useful + the ones Discord users will actually pick.
+  @language_choices [
+    %{name: "Spanish", value: "es"},
+    %{name: "English", value: "en"},
+    %{name: "Chinese (Simplified)", value: "zh-Hans"},
+    %{name: "Chinese (Traditional)", value: "zh-Hant"},
+    %{name: "French", value: "fr"},
+    %{name: "German", value: "de"},
+    %{name: "Italian", value: "it"},
+    %{name: "Portuguese", value: "pt"},
+    %{name: "Japanese", value: "ja"},
+    %{name: "Korean", value: "ko"},
+    %{name: "Russian", value: "ru"},
+    %{name: "Arabic", value: "ar"},
+    %{name: "Hindi", value: "hi"},
+    %{name: "Dutch", value: "nl"},
+    %{name: "Polish", value: "pl"},
+    %{name: "Turkish", value: "tr"},
+    %{name: "Ukrainian", value: "uk"},
+    %{name: "Vietnamese", value: "vi"},
+    %{name: "Thai", value: "th"},
+    %{name: "Greek", value: "el"},
+    %{name: "Hebrew", value: "he"},
+    %{name: "Swedish", value: "sv"},
+    %{name: "Danish", value: "da"},
+    %{name: "Finnish", value: "fi"},
+    %{name: "Norwegian", value: "nb"},
+    %{name: "Czech", value: "cs"},
+    %{name: "Romanian", value: "ro"},
+    %{name: "Hungarian", value: "hu"},
+    %{name: "Indonesian", value: "id"},
+    %{name: "Persian", value: "fa"}
+  ]
+
+  # Discord caps choices at 25 per option.
+  @translate_to_choices Enum.take(@language_choices, 25)
 
   @commands [
     %{
@@ -34,16 +74,32 @@ defmodule TranslateBot.Commands do
           description: "Target language",
           type: 3,
           required: true,
-          choices: [
-            %{name: "Spanish", value: "es"},
-            %{name: "English", value: "en"}
-          ]
+          choices: @translate_to_choices
         },
         %{
           name: "text",
           description: "The message to translate",
           type: 3,
           required: true
+        }
+      ]
+    },
+    %{
+      name: "translate-file",
+      description: "Translate a text file (auto-detects the language)",
+      options: [
+        %{
+          name: "file",
+          description: "The .txt/.md/.csv/.srt/.html file to translate",
+          type: 11,
+          required: true
+        },
+        %{
+          name: "lang",
+          description: "Target language (default: English)",
+          type: 3,
+          required: false,
+          choices: @translate_to_choices
         }
       ]
     },
@@ -81,4 +137,7 @@ defmodule TranslateBot.Commands do
 
   @doc "The list of command definitions (useful in tests)."
   def all, do: @commands
+
+  @doc "The shared language choices (for /translate-to and /translate-file)."
+  def language_choices, do: @language_choices
 end
