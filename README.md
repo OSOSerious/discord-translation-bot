@@ -6,12 +6,18 @@ Self-hostable, private, and fast: slash commands for one-off translations plus a
 
 ## Features
 
-- `/translate text:<msg>` — auto-detects ES/EN and translates to the other language
-- `/detect text:<msg>` — reports whether the message looks Spanish or English
-- `/auto` — toggles auto-translate for the current channel (every message gets translated)
+- `/translate text:<msg>` — auto-detects ES/EN and translates to the other language; optional `hidden:` flag makes the reply ephemeral
+- `/translate-to lang: text:` — translate into any of 25 languages (dropdown)
+- `/translate-file file: lang:` — translate a text file (`.txt .md .csv .srt .html .json .log`), auto-detects the language; replies with the translated file
+- `/translate-url url: lang:` — translate a web page; get the readable text back as a file
+- `/detect text:<msg>` — reports the detected language
+- `/auto` — toggles auto-translate for the current channel (every message gets translated) — **persists across restarts**
+- `/stats` — translations served, cache hits, top language pairs, active channels
+- **Any-flag reactions** — react 🇨🇳 🇫🇷 🇩🇪 🇯🇵 🇷🇺 🇰🇷 … (~40 flags) on any message to translate it into that language
+- **50 languages** via LibreTranslate — non-Latin scripts auto-detected server-side
 - **Pluggable backends** — tries DeepL first if configured, falls back to LibreTranslate
 - **ETS cache** — repeated phrases never hit the API twice (1h TTL)
-- **Language detection** — offline heuristics (accent characters + stop-word analysis), no network needed
+- **Persistent stats & channel state** — DETS-backed, survives restarts
 
 ## Requirements
 
@@ -61,8 +67,12 @@ On boot you'll see:
 ```
 [info] READY
 [info] registered /translate
+[info] registered /translate-to
+[info] registered /translate-file
+[info] registered /translate-url
 [info] registered /detect
 [info] registered /auto
+[info] registered /stats
 ```
 
 Type `/translate text: hola` in your server to test.
@@ -73,8 +83,15 @@ Type `/translate text: hola` in your server to test.
 |---|---|
 | `/translate text: good morning` | Detects English → replies `🇬🇧 → 🇪🇸: buenos días` |
 | `/translate text: ¿cómo estás?` | Detects Spanish → replies `🇪🇸 → 🇬🇧: how are you?` |
+| `/translate text: hi hidden: true` | Same, but the reply is visible only to you |
+| `/translate-to lang:French text: hello` | Forced direction, 25-language dropdown |
+| `/translate-file file:notes.txt lang:English` | Upload in the command → translated file back |
+| `/translate-url url:https://elpais.com` | Page → readable text → translated `.txt` file |
 | `/detect text: hola` | Replies `That looks like **Spanish** 🇪🇸` |
 | `/auto` | Toggles auto-translate on/off for the current channel |
+| `/stats` | Usage counters (persisted) |
+| react 🇨🇳 on any message | Translates that message to Chinese; ~40 flags work |
+| drop a `.txt` in an `/auto` channel | Full file translated and posted back |
 
 ## Architecture
 
@@ -83,10 +100,14 @@ Discord Gateway ──> Nostrum Consumer (TranslateBot.Consumer)
                         │
                         ├──> TranslateBot.Translation (orchestrator)
                         │       ├──> TranslateBot.Cache (ETS, 1h TTL)
+                        │       ├──> TranslateBot.Stats (DETS, persisted counters)
                         │       └──> Backend fallback chain:
                         │             DeepL ──> LibreTranslate ──> (your own)
-                        ├──> TranslateBot.Detect (offline ES/EN heuristics)
-                        └──> TranslateBot.Channels (per-channel /auto state, ETS)
+                        ├──> TranslateBot.Detect (ES/EN heuristics + script routing)
+                        ├──> TranslateBot.FileTranslator (chunked file pipeline)
+                        ├──> TranslateBot.UrlTranslator (fetch + readability + translate)
+                        ├──> TranslateBot.Languages (flag ↔ language codes)
+                        └──> TranslateBot.Channels (per-channel /auto state, DETS-persisted)
 ```
 
 See [API.md](API.md) for the full module reference.
@@ -95,7 +116,7 @@ See [API.md](API.md) for the full module reference.
 
 ```bash
 mix deps.get
-mix test                     # 14 tests, no network needed (fake backends)
+mix test                     # 22 tests, no network needed (fake backends)
 mix compile --warnings-as-errors
 ```
 

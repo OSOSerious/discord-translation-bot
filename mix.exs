@@ -4,7 +4,7 @@ defmodule TranslateBot.MixProject do
   def project do
     [
       app: :translate_bot,
-      version: "0.1.0",
+      version: "0.3.0",
       elixir: "~> 1.19",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
