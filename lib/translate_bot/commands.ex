@@ -6,8 +6,10 @@ defmodule TranslateBot.Commands do
     * `/translate text:<msg>`            — auto-detect ES↔EN and translate
     * `/translate-to lang: text:`        — translate into a specific language
     * `/translate-file file: lang:`      — translate a text file attachment
+    * `/translate-url url: lang:`        — translate a web page
     * `/detect text:<msg>`               — report the detected language
     * `/auto`                            — toggle auto-translate in this channel
+    * `/stats`                           — translation usage stats
   """
 
   alias Nostrum.Api.ApplicationCommand
@@ -62,6 +64,12 @@ defmodule TranslateBot.Commands do
           description: "The message to translate",
           type: 3,
           required: true
+        },
+        %{
+          name: "hidden",
+          description: "Reply only to you (ephemeral)",
+          type: 5,
+          required: false
         }
       ]
     },
@@ -104,6 +112,25 @@ defmodule TranslateBot.Commands do
       ]
     },
     %{
+      name: "translate-url",
+      description: "Translate a web page (auto-detects the language)",
+      options: [
+        %{
+          name: "url",
+          description: "The page URL to translate",
+          type: 3,
+          required: true
+        },
+        %{
+          name: "lang",
+          description: "Target language (default: English)",
+          type: 3,
+          required: false,
+          choices: @translate_to_choices
+        }
+      ]
+    },
+    %{
       name: "detect",
       description: "Detect whether a message is English or Spanish",
       options: [
@@ -118,6 +145,10 @@ defmodule TranslateBot.Commands do
     %{
       name: "auto",
       description: "Toggle automatic translation in this channel"
+    },
+    %{
+      name: "stats",
+      description: "Translation usage stats for this bot"
     }
   ]
 

@@ -1,13 +1,16 @@
 defmodule TranslateBot.Channels do
   @moduledoc """
-  Per-channel auto-translate toggle, stored in ETS.
+  Per-channel auto-translate toggle, stored in ETS with DETS write-through.
 
-  `enabled?/1` is safe to call before the table exists (returns `false`).
+  Survives restarts: `enabled?/1` is seeded from disk on boot and every
+  toggle is persisted. Safe to call before the table exists (`false`).
   """
 
   use GenServer
 
   @table __MODULE__
+  @dets_file ~c"data/channels.dets"
+  @dets __MODULE__.Dets
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -28,18 +31,41 @@ defmodule TranslateBot.Channels do
 
       enabled?(channel_id) ->
         :ets.delete(@table, channel_id)
+        :dets.delete(@dets, channel_id)
         false
 
       true ->
         :ets.insert(@table, {channel_id, true})
+        :dets.insert(@dets, {channel_id, true})
         true
     end
+  end
+
+  @doc "Number of channels with auto-translate on."
+  def count do
+    if table_alive?(), do: :ets.info(@table)[:size], else: 0
   end
 
   @impl true
   def init(_opts) do
     :ets.new(@table, [:set, :named_table, :public, read_concurrency: true])
-    {:ok, nil}
+
+    {:ok, dets} = :dets.open_file(@dets, file: @dets_file, auto_save: :timer.seconds(30))
+
+    # Seed the in-memory table from disk.
+    :dets.foldl(fn {channel_id, true}, _acc ->
+      :ets.insert(@table, {channel_id, true})
+      :ok
+    end, :ok, dets)
+
+    {:ok, dets}
+  end
+
+  @impl true
+  def terminate(_reason, dets) do
+    :dets.sync(dets)
+    :dets.close(dets)
+    :ok
   end
 
   defp table_alive?, do: :ets.whereis(@table) != :undefined

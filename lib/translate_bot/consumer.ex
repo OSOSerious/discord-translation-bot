@@ -52,17 +52,18 @@ defmodule TranslateBot.Consumer do
 
   defp handle_interaction(%Interaction{data: %{name: "translate"}} = interaction) do
     text = option(interaction, "text")
+    ephemeral? = ephemeral?(interaction)
 
-    case TranslateBot.Translation.auto(text) do
+    case TranslateBot.Translation.auto(text, interaction.channel_id) do
       {:ok, %{from: from, to: to, text: translated}} ->
-        respond(interaction, "**#{flag(from)} → #{flag(to)}:** #{translated}")
+        respond(interaction, "**#{flag(from)} → #{flag(to)}:** #{translated}", ephemeral?)
 
       {:error, :empty_text} ->
-        respond(interaction, "Give me something to translate! `/translate text: hola`")
+        respond(interaction, "Give me something to translate! `/translate text: hola`", ephemeral?)
 
       {:error, reason} ->
         Logger.error("translate failed: #{inspect(reason)}")
-        respond(interaction, "Translation failed — try again in a moment.")
+        respond(interaction, "Translation failed — try again in a moment.", ephemeral?)
     end
   end
 
@@ -134,6 +135,64 @@ defmodule TranslateBot.Consumer do
     :ok
   end
 
+  defp handle_interaction(%Interaction{data: %{name: "translate-url"}} = interaction) do
+    url = String.trim(option(interaction, "url"))
+    to = option(interaction, "lang")
+
+    unless url =~ ~r/^https?:\/\// do
+      respond(interaction, "That doesn't look like a valid URL (needs http:// or https://).")
+    else
+      # Ack now; the fetch + translation happens in the background.
+      InteractionApi.create_response(interaction, %{type: 5, data: %{content: "Fetching page… 🌐"}})
+
+      Task.start(fn ->
+        case TranslateBot.UrlTranslator.run(url, to: to) do
+          {:ok, %{title: title, content: content, from: from, to: to_lang}} ->
+            upload_file_followup(
+              interaction,
+              "#{slug(title)}.#{to_lang}.txt",
+              content,
+              from,
+              to_lang
+            )
+
+          {:error, :not_html} ->
+            followup(interaction, "That URL doesn't point to an HTML page.")
+
+          {:error, reason} ->
+            Logger.warning("translate-url failed: #{inspect(reason)}")
+            followup(interaction, "Couldn't fetch or translate that page — check the URL.")
+        end
+      end)
+    end
+
+    :ok
+  end
+
+  defp handle_interaction(%Interaction{data: %{name: "stats"}} = interaction) do
+    stats = TranslateBot.Stats.snapshot()
+    channels_on = TranslateBot.Channels.count()
+
+    top_langs =
+      stats.langs
+      |> Enum.sort_by(fn {_k, v} -> -v end)
+      |> Enum.take(3)
+      |> Enum.map(fn {{s, t}, n} -> "#{flag(s)}→#{flag(t)} **#{n}**" end)
+      |> Enum.join(" · ")
+
+    message =
+      [
+        "📊 **TranslateBot stats**",
+        "Translations: **#{stats.total}** (cache hits: #{stats.cache_hits})",
+        "Auto-translate channels: **#{channels_on}**",
+        if(top_langs != "", do: "Top pairs: #{top_langs}", else: nil)
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join("\n")
+
+    respond(interaction, message)
+  end
+
   defp handle_interaction(%Interaction{data: %{name: "auto"}} = interaction) do
     channel_id = interaction.channel_id
     enabled = TranslateBot.Channels.toggle(channel_id)
@@ -149,42 +208,54 @@ defmodule TranslateBot.Consumer do
 
   # -- Reaction-translate ---------------------------------------------------
 
-  defp handle_reaction(%MessageReactionAdd{emoji: %{name: emoji_name}} = reaction)
-       when emoji_name in ["🇬🇧", "🇪🇸", " gb", "es"] do
-    target = if emoji_name in ["🇬🇧", "en"], do: "en", else: "es"
+  defp handle_reaction(%MessageReactionAdd{emoji: %{name: emoji_name}} = reaction) do
+    case TranslateBot.Languages.from_flag(emoji_name) do
+      nil ->
+        :ignore
 
-    if fresh_reaction?(reaction.message_id, target) do
-      case MessageApi.get(reaction.channel_id, reaction.message_id) do
-        {:ok, %Message{content: content}} ->
-          translate_reacted(content, target, reaction)
+      target ->
+        if fresh_reaction?(reaction.message_id, target) do
+          case MessageApi.get(reaction.channel_id, reaction.message_id) do
+            {:ok, %Message{content: content}} ->
+              translate_reacted(content, target, reaction)
 
-        error ->
-          Logger.warning("reaction fetch failed: #{inspect(error)}")
-      end
+            error ->
+              Logger.warning("reaction fetch failed: #{inspect(error)}")
+          end
+        end
+
+        :ignore
     end
-
-    :ignore
   end
 
   defp handle_reaction(_other), do: :ignore
 
   defp translate_reacted(content, target, reaction) do
-    source = TranslateBot.Detect.detect(content)
+    case String.trim(content || "") do
+      "" ->
+        :ignore
 
-    if source == target do
-      # Already in the requested language — nothing to do.
-      :ignore
-    else
-      case TranslateBot.Translation.translate(content, source, target) do
-        {:ok, translated, _origin} ->
-          respond_message(%Message{
-            channel_id: reaction.channel_id,
-            author: %{bot: false}
-          }, "**#{flag(source)} → #{flag(target)}:** #{translated}")
+      trimmed ->
+        case TranslateBot.Detect.rich(trimmed) do
+          {:ok, source} when source == target ->
+            # Already in the requested language — nothing to do.
+            :ignore
 
-        {:error, reason} ->
-          Logger.warning("reaction translate failed: #{inspect(reason)}")
-      end
+          {:ok, source} ->
+            case TranslateBot.Translation.translate(trimmed, source, target, reaction.channel_id) do
+              {:ok, translated, _origin} ->
+                respond_message(
+                  %Message{channel_id: reaction.channel_id, author: %{bot: false}},
+                  "**#{flag(source)} → #{flag(target)}:** #{translated}"
+                )
+
+              {:error, reason} ->
+                Logger.warning("reaction translate failed: #{inspect(reason)}")
+            end
+
+          {:error, _reason} ->
+            :ignore
+        end
     end
   end
 
@@ -290,8 +361,9 @@ defmodule TranslateBot.Consumer do
     end
   end
 
-  defp respond(interaction, content) do
-    response = %{type: 4, data: %{content: content}}
+  defp respond(interaction, content, ephemeral \\ false) do
+    data = if ephemeral, do: %{content: content, flags: 64}, else: %{content: content}
+    response = %{type: 4, data: data}
 
     case InteractionApi.create_response(interaction, response) do
       {:ok, _} ->
@@ -300,6 +372,13 @@ defmodule TranslateBot.Consumer do
       error ->
         Logger.warning("interaction response failed: #{inspect(error)}")
         :error
+    end
+  end
+
+  defp ephemeral?(%Interaction{data: %{options: options}}) do
+    case Enum.find(options || [], &(&1.name == "hidden")) do
+      %{value: v} when v in [true, "true"] -> true
+      _ -> false
     end
   end
 
@@ -328,9 +407,7 @@ defmodule TranslateBot.Consumer do
     end
   end
 
-  defp flag("es"), do: "🇪🇸"
-  defp flag("en"), do: "🇬🇧"
-  defp flag(_), do: "🌐"
+  defp flag(code), do: TranslateBot.Languages.flag(code)
 
   defp normalize_lang(lang) do
     case String.downcase(lang || "") do
@@ -341,7 +418,17 @@ defmodule TranslateBot.Consumer do
     end
   end
 
-  defp language_name("es"), do: "Spanish"
-  defp language_name("en"), do: "English"
-  defp language_name(other), do: other
+  defp language_name(lang), do: TranslateBot.Languages.name(lang)
+
+  defp slug(title) do
+    title
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9\s-]/u, "")
+    |> String.replace(~r/\s+/, "-")
+    |> String.trim("-")
+    |> case do
+      "" -> "page"
+      s -> String.slice(s, 0, 50)
+    end
+  end
 end

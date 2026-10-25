@@ -7,6 +7,7 @@ defmodule TranslateBot.Application do
   def start(_type, _args) do
     children = [
       TranslateBot.Cache,
+      TranslateBot.Stats,
       TranslateBot.Channels,
       TranslateBot.Consumer
     ]

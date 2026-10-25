@@ -46,6 +46,17 @@ defmodule TranslateBot.FileTranslator do
     end
   end
 
+  # -- Public translation pipeline -------------------------------------------
+
+  @doc """
+  Translate arbitrary text (not an attachment) from `from` to `to`,
+  chunk-aware. Shared by UrlTranslator and other callers.
+  """
+  @spec translate_text(String.t(), String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
+  def translate_text(text, from, to) do
+    translate_chunks(text, from, to)
+  end
+
   # -- Steps ----------------------------------------------------------------
 
   defp download(%{url: url}) do

@@ -115,9 +115,18 @@ defmodule TranslateBotTest do
   # -- Commands ------------------------------------------------------------
 
   describe "TranslateBot.Commands" do
-    test "defines translate, translate-to, translate-file, detect and auto" do
+    test "defines translate, translate-to, translate-file, translate-url, detect, auto and stats" do
       names = TranslateBot.Commands.all() |> Enum.map(& &1.name)
-      assert names == ["translate", "translate-to", "translate-file", "detect", "auto"]
+
+      assert names == [
+               "translate",
+               "translate-to",
+               "translate-file",
+               "translate-url",
+               "detect",
+               "auto",
+               "stats"
+             ]
     end
 
     test "language choices stay within Discord's 25-option cap" do
