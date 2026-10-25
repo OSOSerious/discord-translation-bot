@@ -13,11 +13,12 @@ defmodule TranslateBot.Translators.DeepL do
 
   @impl true
   def translate(text, source, target) do
-    request = %{
-      text: [text],
-      source_lang: String.upcase(source),
-      target_lang: String.upcase(target)
-    }
+    request =
+      %{
+        text: [text],
+        target_lang: String.upcase(target)
+      }
+      |> maybe_put(:source_lang, upcase_unless_auto(source))
 
     case Req.post(endpoint() <> "/v2/translate",
            json: request,
@@ -37,6 +38,13 @@ defmodule TranslateBot.Translators.DeepL do
         {:error, {:deepl, Exception.message(exception)}}
     end
   end
+
+  # DeepL omits source_lang => auto-detect on their side.
+  defp upcase_unless_auto("auto"), do: nil
+  defp upcase_unless_auto(lang), do: String.upcase(lang)
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp key do
     System.get_env("DEEPL_API_KEY") || Application.get_env(:translate_bot, :deepl_key)

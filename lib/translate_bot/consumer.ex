@@ -172,6 +172,29 @@ defmodule TranslateBot.Consumer do
 
   defp handle_message(%Message{author: %{bot: true}}), do: :ignore
 
+  defp handle_message(%Message{attachments: [attachment | _]} = msg) do
+    # .txt attachments in an /auto channel get translated and posted back.
+    if TranslateBot.Channels.enabled?(msg.channel_id) and text_attachment?(attachment) do
+      Task.start(fn ->
+        case TranslateBot.FileTranslator.run(attachment) do
+          {:ok, %{filename: filename, content: content, from: from, to: to}} ->
+            upload(msg, filename, content, from, to)
+
+          {:error, :file_too_large} ->
+            respond_message(msg, "That file is too big to translate (1 MB max).")
+
+          {:error, :invalid_utf8} ->
+            respond_message(msg, "That doesn't look like a UTF-8 text file.")
+
+          {:error, _} ->
+            respond_message(msg, "Couldn't translate that file — try again in a moment.")
+        end
+      end)
+    end
+
+    :ignore
+  end
+
   defp handle_message(%Message{} = msg) do
     if TranslateBot.Channels.enabled?(msg.channel_id) and translatable?(msg.content) do
       case TranslateBot.Translation.auto(msg.content) do
@@ -184,6 +207,21 @@ defmodule TranslateBot.Consumer do
     end
 
     :ignore
+  end
+
+  defp text_attachment?(%{filename: filename, size: size}) do
+    String.ends_with?(String.downcase(filename || ""), ".txt") and
+      is_integer(size) and size <= Application.get_env(:translate_bot, :max_translation_file_bytes, 1_000_000) + 100
+  end
+
+  defp upload(%Message{} = msg, filename, content, from, to) do
+    case MessageApi.create(msg.channel_id,
+           content: "📄 Translated #{flag(from)} → #{flag(to)} — here's your file:",
+           files: [%{name: filename, body: content}]
+         ) do
+      {:ok, _} -> :ok
+      error -> Logger.warning("file upload failed: #{inspect(error)}")
+    end
   end
 
   # Smart skip: don't waste API calls (or spam the channel) on messages

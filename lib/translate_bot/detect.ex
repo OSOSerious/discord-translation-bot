@@ -31,6 +31,35 @@ defmodule TranslateBot.Detect do
     end
   end
 
+  @doc """
+  Detect *any* language, falling back to LibreTranslate's `/detect`.
+
+  1. Try the fast local ES/EN heuristics — but only trust them when the
+     text is written in Latin script (Chinese/Japanese/etc. would otherwise
+     be misclassified as English).
+  2. Non-Latin scripts or ambiguous cases go to the backend detector,
+     which returns codes like `zh-Hans`, `ja`, `ru`.
+
+  Returns `{:ok, code}` or `{:error, reason}`.
+  """
+  @spec rich(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def rich(text) when is_binary(text) do
+    cond do
+      latin_script?(text) ->
+        {:ok, detect(text)}
+
+      true ->
+        TranslateBot.Translators.LibreTranslate.detect(text)
+    end
+  end
+
+  @latin ~r/^[\p{Latin}\p{Common}\s]*$/u
+
+  defp latin_script?(text) do
+    # At least one letter and no non-Latin script characters.
+    String.match?(text, ~r/\p{L}/u) and Regex.match?(@latin, text)
+  end
+
   @doc "The opposite language: `other(\"es\")` → `\"en\"` and vice versa."
   @spec other(String.t()) :: String.t()
   def other("es"), do: "en"
