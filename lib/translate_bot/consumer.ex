@@ -46,7 +46,7 @@ defmodule TranslateBot.Consumer do
     :ignore
   end
 
-  def handle_event(_event), do: :ignore
+  # Unhandled events fall through to the catch-all `use Nostrum.Consumer` injects.
 
   # -- Interactions ---------------------------------------------------------
 
