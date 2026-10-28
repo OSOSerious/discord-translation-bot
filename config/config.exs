@@ -3,7 +3,10 @@ import Config
 # Nostrum (Discord) configuration.
 # Never commit the token — read it from the environment at runtime.
 config :nostrum,
-  token: System.get_env("DISCORD_BOT_TOKEN")
+  token: System.get_env("DISCORD_BOT_TOKEN"),
+  # /auto and flag reactions read message text, which needs the privileged
+  # Message Content intent (also switch it on in the Developer Portal, Bot tab).
+  gateway_intents: [:guilds, :guild_messages, :guild_message_reactions, :message_content]
 
 # Translation backends, tried in order until one succeeds.
 # DeepL is skipped automatically when no API key is configured.
