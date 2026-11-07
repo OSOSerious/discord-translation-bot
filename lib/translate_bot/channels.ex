@@ -50,6 +50,7 @@ defmodule TranslateBot.Channels do
   def init(_opts) do
     :ets.new(@table, [:set, :named_table, :public, read_concurrency: true])
 
+    File.mkdir_p!(Path.dirname(@dets_file))
     {:ok, dets} = :dets.open_file(@dets, file: @dets_file, auto_save: :timer.seconds(30))
 
     # Seed the in-memory table from disk.
